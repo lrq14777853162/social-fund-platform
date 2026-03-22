@@ -1,0 +1,96 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: sfp-postgres
+    environment:
+      POSTGRES_USER: sfp
+      POSTGRES_PASSWORD: sfp_secret
+      POSTGRES_DB: social_fund_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sfp -d social_fund_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sfp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: sfp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  policy-admin-service:
+    build:
+      context: ..
+      dockerfile: services/policy-admin-service/Dockerfile
+    container_name: sfp-policy-admin
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  collector-service:
+    build:
+      context: ..
+      dockerfile: services/collector-service/Dockerfile
+    container_name: sfp-collector
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  document-parser-service:
+    build:
+      context: ..
+      dockerfile: services/document-parser-service/Dockerfile
+    container_name: sfp-document-parser
+    ports:
+      - "8003:8003"
+
+  ai-extract-service:
+    build:
+      context: ..
+      dockerfile: services/ai-extract-service/Dockerfile
+    container_name: sfp-ai-extract
+    ports:
+      - "8004:8004"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
